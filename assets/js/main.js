@@ -1,0 +1,236 @@
+/* Pink Flamingo Buzz — interactions. No dependencies. */
+(function () {
+  "use strict";
+  var CFG = window.PFB_CONFIG || { reels: [], founders: [], contact: {}, liveStats: {} };
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  var esc = function (s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); };
+  var IG_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="17.5" cy="6.5" r="1.2" fill="currentColor"/></svg>';
+  var EXT_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+  document.documentElement.classList.remove("no-js");
+  var yr = $("#year"); if (yr) yr.textContent = new Date().getFullYear();
+
+  /* ---------- Header + mobile menu ---------- */
+  var header = $(".site-header");
+  var onScroll = function () { header.classList.toggle("scrolled", window.scrollY > 10); };
+  window.addEventListener("scroll", onScroll, { passive: true }); onScroll();
+
+  var toggle = $("#menu-toggle");
+  var setMenu = function (open) {
+    document.body.classList.toggle("menu-open", open);
+    toggle.setAttribute("aria-expanded", String(open));
+    toggle.setAttribute("aria-label", open ? "Close menu" : "Open menu");
+  };
+  toggle.addEventListener("click", function () { setMenu(!document.body.classList.contains("menu-open")); });
+  document.querySelectorAll(".nav a").forEach(function (a) { a.addEventListener("click", function () { setMenu(false); }); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") setMenu(false); });
+
+  /* ---------- Reveal on scroll ---------- */
+  var revealIO = "IntersectionObserver" in window ? new IntersectionObserver(function (entries) {
+    entries.forEach(function (en) { if (en.isIntersecting) { en.target.classList.add("in"); revealIO.unobserve(en.target); } });
+  }, { threshold: 0.12, rootMargin: "0px 0px -40px 0px" }) : null;
+  var observeReveal = function (el) { if (revealIO) revealIO.observe(el); else el.classList.add("in"); };
+  document.querySelectorAll(".reveal").forEach(function (el, i) {
+    el.style.transitionDelay = (i % 4) * 70 + "ms";
+    observeReveal(el);
+  });
+
+  /* ---------- Count-up stats ---------- */
+  var countIO = "IntersectionObserver" in window ? new IntersectionObserver(function (entries) {
+    entries.forEach(function (en) {
+      if (!en.isIntersecting) return;
+      var el = en.target, end = +el.dataset.count, t0 = performance.now(), dur = 1400;
+      (function tick(t) {
+        var p = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - p, 3);
+        el.textContent = Math.round(end * e);
+        if (p < 1) requestAnimationFrame(tick);
+      })(t0);
+      countIO.unobserve(el);
+    });
+  }, { threshold: 0.5 }) : null;
+  document.querySelectorAll("[data-count]").forEach(function (el) { if (countIO) countIO.observe(el); else el.textContent = el.dataset.count; });
+
+  /* ---------- Reels carousel ---------- */
+  var rail = $("#reel-rail");
+  var reels = (CFG.reels || []).filter(Boolean);
+  var pad = function (n) { return (n < 10 ? "0" : "") + n; };
+
+  rail.innerHTML = reels.map(function (code, i) {
+    var url = "https://www.instagram.com/reel/" + encodeURIComponent(code) + "/";
+    return '<li class="reel-card" data-code="' + esc(code) + '">' +
+      '<div class="reel-poster" aria-hidden="true"><span class="reel-num">' + pad(i + 1) + '</span>' +
+      '<span class="rp-play"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z" fill="#fff"/></svg></span>' +
+      '<span class="rp-label">Loading reel…</span></div>' +
+      '<a class="reel-open" href="' + url + '" target="_blank" rel="noopener" aria-label="Open reel ' + (i + 1) + ' on Instagram">' + EXT_ICON + 'Instagram</a>' +
+      '</li>';
+  }).join("");
+
+  // Lazy-load the official Instagram embed iframe for each card as it nears view.
+  var loadReel = function (card) {
+    if (card.dataset.loaded) return;
+    card.dataset.loaded = "1";
+    var f = document.createElement("iframe");
+    f.src = "https://www.instagram.com/reel/" + encodeURIComponent(card.dataset.code) + "/embed/";
+    f.title = "Client reel " + (Array.prototype.indexOf.call(rail.children, card) + 1);
+    f.setAttribute("scrolling", "no");
+    f.setAttribute("allowtransparency", "true");
+    f.setAttribute("allow", "autoplay; encrypted-media; picture-in-picture; clipboard-write");
+    f.setAttribute("loading", "lazy");
+    f.addEventListener("load", function () { card.classList.add("loaded"); });
+    card.insertBefore(f, card.querySelector(".reel-open"));
+  };
+  if ("IntersectionObserver" in window) {
+    var reelIO = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) { if (en.isIntersecting) { loadReel(en.target); reelIO.unobserve(en.target); } });
+    }, { root: rail, rootMargin: "0px 700px 0px 700px" });
+    // Only start observing once the section is close to the viewport (saves data on mobile).
+    var sectionIO = new IntersectionObserver(function (entries) {
+      if (entries[0].isIntersecting) { Array.prototype.forEach.call(rail.children, function (c) { reelIO.observe(c); }); sectionIO.disconnect(); }
+    }, { rootMargin: "600px 0px" });
+    sectionIO.observe(rail);
+  } else {
+    Array.prototype.forEach.call(rail.children, loadReel);
+  }
+
+  // Arrows, counter, progress
+  var prev = $("#reel-prev"), next = $("#reel-next"), counter = $("#reel-counter"), bar = $("#reel-progress");
+  var step = function () { var c = rail.children[0]; return c ? c.getBoundingClientRect().width + 18 : 300; };
+  var perView = function () { return Math.max(1, Math.floor((rail.clientWidth + 18) / step())); };
+  prev.addEventListener("click", function () { rail.scrollBy({ left: -step() * perView(), behavior: "smooth" }); });
+  next.addEventListener("click", function () { rail.scrollBy({ left: step() * perView(), behavior: "smooth" }); });
+  var updateRail = function () {
+    var max = rail.scrollWidth - rail.clientWidth;
+    var idx = Math.min(reels.length, Math.round(rail.scrollLeft / step()) + 1);
+    counter.textContent = pad(idx) + " / " + pad(reels.length);
+    prev.disabled = rail.scrollLeft < 4;
+    next.disabled = rail.scrollLeft > max - 4;
+    var vis = rail.clientWidth / rail.scrollWidth;
+    bar.style.width = Math.min(100, (vis + (max > 0 ? rail.scrollLeft / max : 1) * (1 - vis)) * 100) + "%";
+  };
+  rail.addEventListener("scroll", function () { requestAnimationFrame(updateRail); }, { passive: true });
+  window.addEventListener("resize", updateRail);
+  updateRail();
+
+  // Keyboard + mouse drag (touch uses native swipe)
+  rail.tabIndex = 0;
+  rail.setAttribute("role", "region");
+  rail.addEventListener("keydown", function (e) {
+    if (e.key === "ArrowRight") { e.preventDefault(); next.click(); }
+    if (e.key === "ArrowLeft") { e.preventDefault(); prev.click(); }
+  });
+  var drag = null;
+  rail.addEventListener("pointerdown", function (e) {
+    if (e.pointerType !== "mouse" || e.button !== 0 || e.target.closest("a")) return;
+    drag = { x: e.clientX, left: rail.scrollLeft, moved: false };
+  });
+  window.addEventListener("pointermove", function (e) {
+    if (!drag) return;
+    var dx = e.clientX - drag.x;
+    if (!drag.moved && Math.abs(dx) > 5) { drag.moved = true; rail.classList.add("dragging"); }
+    if (drag.moved) rail.scrollLeft = drag.left - dx;
+  });
+  window.addEventListener("pointerup", function () {
+    if (!drag) return;
+    var moved = drag.moved; drag = null;
+    if (moved) {
+      rail.classList.remove("dragging");
+      // snap to nearest card
+      var s = step(); rail.scrollTo({ left: Math.round(rail.scrollLeft / s) * s, behavior: "smooth" });
+    }
+  });
+
+  /* ---------- Founders ---------- */
+  var grid = $("#founder-grid"), note = $("#founder-note");
+  var fmt = function (n) {
+    if (n == null || n === "" || isNaN(+n)) return null;
+    n = +n;
+    if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1).replace(/\.0$/, "") + "M";
+    if (n >= 1e4) return (n / 1e3).toFixed(n >= 1e5 ? 0 : 1).replace(/\.0$/, "") + "K";
+    return n.toLocaleString("en-IN");
+  };
+  var initials = function (name) { return (name || "?").split(/\s+/).map(function (w) { return w[0]; }).join("").slice(0, 2).toUpperCase(); };
+
+  var renderFounder = function (f, i) {
+    var stats = [["Followers", fmt(f.followers)], ["Posts", fmt(f.posts)], ["Following", fmt(f.following)]].filter(function (s) { return s[1]; });
+    var avatar = f.photo
+      ? '<img src="' + esc(f.photo) + '" alt="' + esc(f.name) + '" loading="lazy" referrerpolicy="no-referrer" onerror="this.outerHTML=\'<span class=&quot;f-initials&quot;>' + esc(initials(f.name)) + '</span>\'">'
+      : '<span class="f-initials" aria-hidden="true">' + esc(initials(f.name)) + '</span>';
+    var url = "https://www.instagram.com/" + encodeURIComponent(f.handle) + "/";
+    return '<article class="founder-card reveal' + (f._live ? " is-live" : "") + '" data-i="' + i + '">' +
+      '<div class="f-avatar">' + avatar + '<span class="f-live" title="Live from Instagram"></span></div>' +
+      '<div><h3 class="f-name">' + esc(f.name) + '</h3><p class="f-role">' + esc(f.role || "Co-founder") + '</p></div>' +
+      '<a class="f-handle" href="' + url + '" target="_blank" rel="noopener">' + IG_ICON + '@' + esc(f.handle) + '</a>' +
+      (f.bio ? '<p class="f-bio">' + esc(f.bio) + '</p>' : "") +
+      (stats.length ? '<div class="f-stats">' + stats.map(function (s) { return '<div><b>' + s[1] + '</b><span>' + s[0] + '</span></div>'; }).join("") + '</div>' : "") +
+      '<div class="f-actions">' +
+        '<button class="btn btn-ghost" data-preview="' + esc(f.handle) + '">See live stats</button>' +
+        '<a class="btn btn-primary" href="' + url + '" target="_blank" rel="noopener">Follow ' + IG_ICON + '</a>' +
+      '</div></article>';
+  };
+
+  var founders = (CFG.founders || []).map(function (f) { return Object.assign({}, f); });
+  var drawFounders = function () {
+    grid.innerHTML = founders.map(renderFounder).join("");
+    grid.querySelectorAll(".reveal").forEach(observeReveal);
+  };
+  drawFounders();
+
+  // Live stats from your own serverless endpoint (Instagram Graph API). Refreshes every page load.
+  var ep = CFG.liveStats && CFG.liveStats.endpoint;
+  if (ep) {
+    Promise.all(founders.map(function (f) {
+      return fetch(ep + (ep.indexOf("?") > -1 ? "&" : "?") + "username=" + encodeURIComponent(f.handle), { cache: "no-store" })
+        .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+        .then(function (d) {
+          if (d.followers_count != null) f.followers = d.followers_count;
+          if (d.media_count != null) f.posts = d.media_count;
+          if (d.follows_count != null) f.following = d.follows_count;
+          if (d.profile_picture_url) f.photo = d.profile_picture_url;
+          f._live = true;
+        }).catch(function () { /* keep config fallback */ });
+    })).then(function () {
+      drawFounders();
+      if (founders.some(function (f) { return f._live; })) note.textContent = "Follower counts update live from Instagram.";
+    });
+  }
+
+  // "See live stats" opens Instagram's own profile embed in a modal.
+  var modal = $("#profile-modal"), mBody = $("#modal-body"), mTitle = $("#modal-title");
+  grid.addEventListener("click", function (e) {
+    var b = e.target.closest("[data-preview]"); if (!b) return;
+    var h = b.getAttribute("data-preview");
+    mTitle.textContent = "@" + h;
+    mBody.innerHTML = '<iframe src="https://www.instagram.com/' + encodeURIComponent(h) + '/embed/" title="Instagram profile @' + esc(h) + '" loading="lazy" allowtransparency="true"></iframe>';
+    if (modal.showModal) modal.showModal(); else window.open("https://www.instagram.com/" + h + "/", "_blank", "noopener");
+  });
+  var closeModal = function () { modal.close(); mBody.innerHTML = ""; };
+  $("#modal-close").addEventListener("click", closeModal);
+  modal.addEventListener("click", function (e) { if (e.target === modal) closeModal(); });
+  modal.addEventListener("cancel", function () { mBody.innerHTML = ""; });
+
+  /* ---------- Contact ---------- */
+  var c = CFG.contact || {};
+  var links = [];
+  if (c.email) links.push('<li><a href="mailto:' + esc(c.email) + '"><i><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 7l8 6 8-6" fill="none" stroke="currentColor" stroke-width="2"/></svg></i>' + esc(c.email) + '</a></li>');
+  if (c.phone) links.push('<li><a href="tel:' + esc(c.phone.replace(/\s+/g, "")) + '"><i><svg viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></i>' + esc(c.phone) + '</a></li>');
+  if (c.instagram) links.push('<li><a href="https://www.instagram.com/' + encodeURIComponent(c.instagram) + '/" target="_blank" rel="noopener"><i>' + IG_ICON + '</i>@' + esc(c.instagram) + '</a></li>');
+  if (c.city) links.push('<li><span><i><svg viewBox="0 0 24 24"><path d="M12 21s-7-6-7-11a7 7 0 0 1 14 0c0 5-7 11-7 11z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="10" r="2.5" fill="currentColor"/></svg></i>' + esc(c.city) + '</span></li>');
+  $("#contact-links").innerHTML = links.join("");
+
+  // Static site: the form composes an email in the visitor's mail app.
+  var form = $("#contact-form"), msg = $("#form-msg");
+  form.addEventListener("submit", function (e) {
+    e.preventDefault();
+    var name = form.name.value.trim(), email = form.email.value.trim();
+    var bad = false;
+    [[form.name, !!name], [form.email, /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)]].forEach(function (p) {
+      p[0].setAttribute("aria-invalid", String(!p[1])); if (!p[1]) bad = true;
+    });
+    if (bad) { msg.className = "form-msg err"; msg.textContent = "Please add your name and a valid email."; return; }
+    var needs = Array.prototype.map.call(form.querySelectorAll('input[name="need"]:checked'), function (i) { return i.value; });
+    var body = "Name: " + name + "\nBrand: " + form.brand.value.trim() + "\nEmail: " + email +
+      "\nInterested in: " + (needs.join(", ") || "-") + "\n\n" + form.message.value.trim();
+    window.location.href = "mailto:" + (c.email || "") + "?subject=" + encodeURIComponent("Campaign enquiry from " + name) + "&body=" + encodeURIComponent(body);
+    msg.className = "form-msg ok"; msg.textContent = "Opening your email app… thanks, we'll be in touch!";
+  });
+})();
